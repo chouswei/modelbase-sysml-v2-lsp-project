@@ -1,6 +1,6 @@
 /*
   Requirements for the SysML v2 LSP MCP extension: project-scoped load, impact, rename, context.
-  Source: requirements.md §1–3; behaviour and traceability: PLAN.md §4–5, §10. Satisfy links in deploy-sysml-v2-lsp-project.sysml.
+  Source: requirements.md §1–3; behaviour: PLAN §4–5; success when: PLAN §6; out of scope: PLAN §9; traceability: PLAN §10; memory: PLAN §11; future index: PLAN §13. Satisfy links in deploy-sysml-v2-lsp-project.sysml.
 */
 package SysMLv2LspProjectRequirements {
   private import ScalarValues::String;
@@ -104,12 +104,21 @@ package SysMLv2LspProjectRequirements {
     */
   }
 
-  requirement def ReqImpactParamsAndRisk {
-    attribute requirementId : String = "R2.2.2/R2.2.5";
+  requirement def ReqImpactDirection {
+    attribute requirementId : String = "R2.2.2";
     doc
     /*
-      impact SHALL accept symbolName; optional uri, direction (upstream|downstream|both). impact MAY return
-      a risk hint (low|medium|high) from referenceCount and affectedUris. Source: requirements.md §2.2.
+      impact SHALL accept symbolName; optional uri; optional direction (upstream|downstream|both). Upstream:
+      references to this symbol; downstream: symbols whose typeNames include target.qualifiedName. Source: requirements.md §2.2, PLAN §4.2.
+    */
+  }
+
+  requirement def ReqImpactRisk {
+    attribute requirementId : String = "R2.2.5";
+    doc
+    /*
+      impact MAY return a risk hint (low|medium|high) from referenceCount and affectedUris (e.g. high when
+      referenceCount > 10 or affectedUris.length > 5). Source: requirements.md §2.2, PLAN §4.2.
     */
   }
 
@@ -205,6 +214,16 @@ package SysMLv2LspProjectRequirements {
     /*
       Constraint: Config schema SHALL be compatible with SystemDesign: config.yaml with model_dir (optional)
       and model_files (paths relative to project directory). Source: requirements.md §3.
+    */
+  }
+
+  requirement def ReqIndexAssistFuture {
+    attribute requirementId : String = "R.Future.Index";
+    doc
+    /*
+      Future (out of scope Phase 1): Index as assist — memory = single project; index = graph DB. loadProject
+      on success updates graph; index/renewIndex build graph without loading (GitNexus-style). rename/impact/context
+      may query graph for assist. See PLAN §13.
     */
   }
 }
