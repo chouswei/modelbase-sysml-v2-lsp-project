@@ -1,6 +1,6 @@
 /*
   Requirements for the SysML v2 LSP MCP extension: project-scoped load, impact, rename, context.
-  Source: requirements.md §1–3. Satisfy links are in deploy-sysml-v2-lsp-project.sysml.
+  Source: requirements.md §1–3; behaviour and traceability: PLAN.md §4–5, §10. Satisfy links in deploy-sysml-v2-lsp-project.sysml.
 */
 package SysMLv2LspProjectRequirements {
   private import ScalarValues::String;
@@ -73,7 +73,25 @@ package SysMLv2LspProjectRequirements {
     doc
     /*
       loadProject SHALL return a summary: number of files loaded, total symbol count, parse errors per file (if any).
-      Source: requirements.md §2.1.
+      When model_files is [], session is cleared and filesLoaded is 0. Source: requirements.md §2.1, PLAN §4.1.
+    */
+  }
+
+  requirement def ReqPathSecurity {
+    attribute requirementId : String = "R2.1.path";
+    doc
+    /*
+      Constraint: loadProject A1 SHALL reject paths that resolve outside projectRoot (path traversal).
+      Normalize and ensure resolved path is under projectRoot; skip and add to errors otherwise. PLAN §3.2, §7.
+    */
+  }
+
+  requirement def ReqSessionReplace {
+    attribute requirementId : String = "R2.1.session";
+    doc
+    /*
+      Constraint: loadProject SHALL replace the entire session (clear then load); no merge with previous load.
+      Second loadProject always replaces all previous URIs and symbols. PLAN §4.1, §4.5.
     */
   }
 

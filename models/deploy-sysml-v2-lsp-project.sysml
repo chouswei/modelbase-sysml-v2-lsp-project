@@ -10,25 +10,31 @@ package SysMLv2LspProject {
 
   action def LoadProject {
     doc /*
-      MCP tool: load multiple SysML documents into the current session symbol table. Input: projectRoot (A1) or projectRoot + files[] (A2). Output: summary (filesLoaded, symbolCount, parseErrors). Uses parser and symbolTable.build(uri, result) per file.
+      MCP tool: load multiple SysML documents into the current session symbol table. Contract (PLAN §4.1): In — projectRoot (string), files (optional array of { uri, code }). Out — filesLoaded, symbolCount, parseErrorsByUri, errors[]. A1: server reads config.yaml and files from disk; A2: client supplies files. Session is replaced (clear then load), not merged. Uses parser and symbolTable.build(uri, result) per file; clearAll() before load.
     */
   }
 
   action def Impact {
     doc /*
-      MCP tool: return all references to a symbol across loaded documents. Input: symbolName; optional uri, direction (upstream|downstream|both). Output: referenceCount, references[], affectedUris[], optional risk. Uses symbolTable.findReferences(name).
+      MCP tool: return all references to a symbol across loaded documents. Contract (PLAN §4.2): In — symbolName, uri (optional), direction (optional upstream|downstream|both). Out — symbolName, referenceCount, references[], affectedUris[], risk (optional low|medium|high). When nothing loaded: message "No project loaded; call loadProject first." Uses symbolTable.findReferences(name); downstream includes subtypes (typeNames includes target.qualifiedName).
     */
   }
 
   action def Rename {
     doc /*
-      MCP tool: return or apply text edits for a symbol rename across all loaded documents. Input: symbolName, newName; optional dryRun (default true), uri. Output: edits[{ uri, range, newText }]. Uses findReferences then identifier ranges per symbol.
+      MCP tool: return or apply text edits for a symbol rename across all loaded documents. Contract (PLAN §4.3): In — symbolName, newName, dryRun (optional, default true), uri (optional). Out — found, edits[{ uri, range, newText }], message. When dryRun true: no state change. When dryRun false: apply to loadedDocuments and re-parse per URI. Multiple symbols same name without uri: error "provide uri to disambiguate". Uses findReferences then selectionRange per symbol.
     */
   }
 
   action def Context {
     doc /*
-      MCP tool: single combined view for one symbol. Input: symbolName (or qualified name); optional uri. Output: definition, references (in), referencesOut, hierarchy. Uses getDefinition, findReferences, getHierarchy, typeNames resolution.
+      MCP tool: single combined view for one symbol. Contract (PLAN §4.5): In — symbolName (or qualified name), uri (optional). Out — found, definition, references (in), referencesOut (typeNames resolved; subtypes for defs), hierarchy. When not found: found false, optional nearMatches. Multiple same name without uri: first match only. Uses getDefinition, findReferences, getHierarchy, typeNames resolution.
+    */
+  }
+
+  action def Query {
+    doc /*
+      MCP tool (Phase 3, optional): find symbols by name substring or kind across loaded documents. In — query (string), filters (optional, e.g. kind). Out — count, symbols[] (same shape as getSymbols). Filter getAllSymbols() by name/qualifiedName contains query and optional kind. PLAN §4 Phase 3.
     */
   }
 
@@ -40,19 +46,19 @@ package SysMLv2LspProject {
 
   part def SymbolTableLayer {
     doc /*
-      Symbol table and scope tree from parse tree. Key: build(uri, parseResult), findReferences(name), findByName(name), getSymbolsForUri(uri), getAllSymbols(), removeUri(uri). Index by qualified name and URI. Files: symbolTable.ts, scope.ts, sysmlElements.ts.
+      Symbol table and scope tree from parse tree. Key: build(uri, parseResult), clearAll() (session reset for loadProject — iterates Array.from(symbolsByUri.keys()) then removeUri; PLAN §4.1), findReferences(name) [may be extended for qualified name for cross-package accuracy], findByName(name), getSymbol(qualifiedName), getSymbolsForUri(uri), getAllSymbols(), removeUri(uri). Index by qualified name and URI. Files: symbolTable.ts, scope.ts, sysmlElements.ts. PLAN §3.2, §5.
     */
   }
 
   part def DocumentManager {
     doc /*
-      Caches parse results by document URI/version; workspace-wide symbol table for LSP. Re-parses only on content change. getWorkspaceSymbolTable() merges all cached docs. No project/config concept in LSP path.
+      LSP document cache only: caches parse results by document URI/version; workspace-wide symbol table for LSP. Re-parses only on content change. getWorkspaceSymbolTable() merges all cached docs. No project/config concept in LSP path. MCP path does NOT use DocumentManager — loadProject/impact/rename/context use McpContext + SymbolTable only (R3.1). Unchanged in Phase 1.
     */
   }
 
   part def McpContext {
     doc /*
-      MCP session state: one SymbolTable instance, loadedDocuments (uri→text), loadedDocumentHashes, lastParseErrors, lastParseTiming. Files: mcpCore.ts. parseAndBuild(ctx, code, uri) updates ctx.symbolTable and ctx.loadedDocuments.
+      MCP session state: one SymbolTable instance, loadedDocuments (uri→text), loadedDocumentHashes, lastParseErrors, lastParseTiming. Files: mcpCore.ts. parseAndBuild(ctx, code, uri) updates ctx.symbolTable and ctx.loadedDocuments. Session is replaced (not merged) on each loadProject: clear then load. Parse tree and token stream are not retained (PLAN §11). Invariant: every URI in symbolTable.symbolsByUri is in loadedDocuments with the text last parsed.
     */
   }
 
@@ -64,12 +70,13 @@ package SysMLv2LspProject {
 
   part def McpServer {
     doc /*
-      MCP server: tool registration — existing (parse, validate, getSymbols, getDefinition, getReferences, getHierarchy, preview, getDiagnostics, getComplexity) plus loadProject, impact, rename, context. Stdio transport; Cursor runs with cwd = workspace root. Files: mcpServer.ts (register tools), mcpCore.ts (handlers).
+      MCP server: tool registration — existing (parse, validate, getSymbols, getDefinition, getReferences, getHierarchy, preview, getDiagnostics, getComplexity) plus loadProject, impact, rename, context, query (optional). Stdio transport; Cursor runs with cwd = workspace root. Files: mcpServer.ts (register tools), mcpCore.ts (handlers). PLAN §5.
     */
     perform loadProject : LoadProject;
     perform impact : Impact;
     perform rename : Rename;
     perform context : Context;
+    perform query : Query;
   }
 
   part def Providers {
@@ -116,9 +123,7 @@ package SysMLv2LspProject {
 
   part def McpExtensionCore {
     doc /*
-      MCP-only extension boundary (R3.1): parser, symbol table, document manager, MCP session context,
-      and MCP server. mcpServer performs LoadProject, Impact, Rename, Context. Reuses parser (parseDocument),
-      SymbolTable (build, findReferences), McpContext; no changes to LSP server or DocumentManager interface.
+      MCP-only extension boundary (R3.1): parser, symbol table, document manager (LSP cache; not used in MCP call path), MCP session context, and MCP server. mcpServer performs LoadProject, Impact, Rename, Context, Query (optional). Reuses parser (parseDocument), SymbolTable (build, clearAll, findReferences), McpContext; no changes to LSP server or DocumentManager interface. PLAN §2, §5.
     */
     part parser : ParserLayer;
     part symbolTable : SymbolTableLayer;
@@ -150,6 +155,8 @@ package SysMLv2LspProject {
     requirement reqLoadProjectTool : ReqLoadProjectTool;
     requirement reqLoadProjectInputs : ReqLoadProjectInputs;
     requirement reqLoadProjectSummary : ReqLoadProjectSummary;
+    requirement reqPathSecurity : ReqPathSecurity;
+    requirement reqSessionReplace : ReqSessionReplace;
     requirement reqImpactTool : ReqImpactTool;
     requirement reqImpactParamsAndRisk : ReqImpactParamsAndRisk;
     requirement reqRenameTool : ReqRenameTool;
@@ -167,15 +174,17 @@ package SysMLv2LspProject {
     satisfy reqImpactAnalysis by extensionCore;
     satisfy reqSafeRename by extensionCore;
     satisfy reqContext by extensionCore;
-    satisfy reqQuery by extensionCore;
-    satisfy reqLoadProjectTool by extensionCore;
+    satisfy reqQuery by extensionCore.mcpServer;
+    satisfy reqLoadProjectTool by extensionCore.mcpServer;
     satisfy reqLoadProjectInputs by extensionCore;
     satisfy reqLoadProjectSummary by extensionCore;
-    satisfy reqImpactTool by extensionCore;
+    satisfy reqPathSecurity by extensionCore;
+    satisfy reqSessionReplace by extensionCore;
+    satisfy reqImpactTool by extensionCore.mcpServer;
     satisfy reqImpactParamsAndRisk by extensionCore;
-    satisfy reqRenameTool by extensionCore;
+    satisfy reqRenameTool by extensionCore.mcpServer;
     satisfy reqRenameDryRun by extensionCore;
-    satisfy reqContextTool by extensionCore;
+    satisfy reqContextTool by extensionCore.mcpServer;
     satisfy reqContextOutputShape by extensionCore;
     satisfy reqWorkspaceOrClientFiles by extensionCore;
     satisfy reqConfigSchema by extensionCore;
