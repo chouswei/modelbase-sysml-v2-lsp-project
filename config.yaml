@@ -7,6 +7,7 @@ show_clickup_status: false
 color_by_status: false
 
 model_dir: models
+# Paths below are relative to project dir (used when run from repo root by Cursor or scripts)
 model_files:
   - ../../../libs/omg/SysML-v2-Release/sysml.library/Kernel Libraries/Kernel Semantic Library/Base.kerml
   - ../../../libs/omg/SysML-v2-Release/sysml.library/Kernel Libraries/Kernel Data Type Library/ScalarValues.kerml
@@ -16,5 +17,6 @@ model_files:
   - ../../../libs/omg/SysML-v2-Release/sysml.library/Domain Libraries/Quantities and Units/SIPrefixes.sysml
   - ../../../libs/omg/SysML-v2-Release/sysml.library/Domain Libraries/Quantities and Units/ISQ.sysml
   - ../../../libs/omg/SysML-v2-Release/sysml.library/Domain Libraries/Quantities and Units/SI.sysml
+  - requirements-sysml-v2-lsp-project.sysml
   - deploy-sysml-v2-lsp-project.sysml
   - root-sysml-v2-lsp-project.sysml
