@@ -13,7 +13,7 @@ package SysMLv2LspProject {
   // ─── MCP tool actions (Phase 1–3, PLAN §4–5) ─────────────────────────────────
   action def LoadProject {
     doc /*
-      MCP tool (Phase 1). Load multiple SysML documents into the current session symbol table. Contract (PLAN §4.1): In — projectRoot (string), files (optional array of { uri, code }). Out — filesLoaded, symbolCount, parseErrorsByUri, errors[]. A1: server reads config.yaml and files from disk; A2: client supplies files. Session is replaced (clear then load), not merged. Uses parser and symbolTable.build(uri, result) per file; clearAll() before load. On success, project graph index is updated (buildFromSymbolTable). Implementation order: clearAll then loadProject (A2 then A1). PLAN §13: index = graph DB; loadProject on success updates graph.
+      MCP tool (Phase 1). Load project into session; on success update graph. Contract (PLAN §4.1): In — projectRoot (string), files (optional array of { uri, code }). Out — filesLoaded, symbolCount, parseErrorsByUri, errors[]. A1: server reads config.yaml and files from disk; A2: client supplies files. Session is replaced (clear then load), not merged. Uses parser and symbolTable.build(uri, result) per file; clearAll() before load. On success, projectGraphIndex is updated (buildFromSymbolTable). Implementation order: clearAll then loadProject (A2 then A1). PLAN §13.
     */
   }
 
@@ -47,9 +47,21 @@ package SysMLv2LspProject {
     */
   }
 
+  action def Index {
+    doc /*
+      MCP tool (PLAN §13). Build graph index without loading session (GitNexus-style). In — projectRoot (string), files (optional). From disk: read config.yaml, model_files, parse each file; from client: parse files array. Write to graph DB (Project, Document, Symbol; IN_DOCUMENT, REFERENCES, TYPES, PARENT). Session unchanged. Out — filesIndexed, symbolCount. Use for CI or index-for-later. Same path/security as loadProject A1.
+    */
+  }
+
+  action def Cypher {
+    doc /*
+      MCP tool (PLAN §13.6b). Run read-only Cypher against the SysML index graph. In — cypherQuery (string), projectRoot (optional, scope to one project). Out — query result. Schema: nodes Project, Document, Symbol; edges IN_DOCUMENT, REFERENCES, TYPES, PARENT. Graph empty or projectRoot not indexed → error or empty result.
+    */
+  }
+
   part def ProjectGraphIndex {
     doc /*
-      Graph index (PLAN §13): symbol and reference graph for the loaded project. Nodes = symbols (qualifiedName, uri, kind, name); edges = REFERENCES (usage→def), SUBTYPE (typeNames), DEFINES (scope). buildFromSymbolTable(symbolTable) populates from current symbol table; clear() on session clear. loadProject on success calls buildFromSymbolTable; impact/rename/context may query the graph for assist (downstream traversal, risk, hierarchy). renewIndex MCP tool rebuilds from symbol table without re-load. Implementation: in-memory graph or embedded DB (e.g. Kuzu). Files: projectGraphIndex.ts (or graph/).
+      Graph index (PLAN §13): persisted index in a graph DB. Node types (PLAN §13.6): Project (projectRoot, modelFiles, indexedAt), Document (uri, contentHash), Symbol (name, kind, qualifiedName, uri, range, typeNames, parentQualifiedName, etc.). Edge types: IN_DOCUMENT (Symbol→Document), REFERENCES/TYPES (Symbol→Symbol), PARENT (hierarchy). buildFromSymbolTable(symbolTable) or index/renewIndex write subgraph; clear() on session clear. loadProject on success updates graph; index (GitNexus-style) builds without loading; renewIndex rebuilds from symbol table. impact/rename/context may query for assist; cypher tool runs read-only Cypher. Implementation: graph DB client; files: projectGraphIndex.ts or graph/.
     */
   }
 
@@ -84,7 +96,7 @@ package SysMLv2LspProject {
       doc /* No project in session; loadProject required before impact/rename/context. */
     }
     state loaded {
-      doc /* Project loaded; impact, rename, context, query available. */
+      doc /* Project loaded; loadProject, impact, rename, context, query, renewIndex, index, cypher available. */
     }
     transition t_load
       first empty
@@ -130,7 +142,7 @@ package SysMLv2LspProject {
 
   part def McpServer {
     doc /*
-      MCP server: tool registration — existing (parse, validate, getSymbols, getDefinition, getReferences, getHierarchy, preview, getDiagnostics, getComplexity) plus loadProject, impact, rename, context, query (optional), renewIndex (optional, PLAN §13). Stdio transport; Cursor runs with cwd = workspace root. Files: mcpServer.ts (register tools), mcpCore.ts (handlers). PLAN §5.
+      MCP server: tool registration — existing (parse, validate, getSymbols, getDefinition, getReferences, getHierarchy, preview, getDiagnostics, getComplexity) plus loadProject, impact, rename, context, query (optional), renewIndex, index, cypher (PLAN §13). Stdio transport; Cursor runs with cwd = workspace root. Files: mcpServer.ts (register tools), mcpCore.ts (handlers). PLAN §5.
     */
     perform loadProject : LoadProject;
     perform impact : Impact;
@@ -138,6 +150,8 @@ package SysMLv2LspProject {
     perform context : Context;
     perform query : Query;
     perform renewIndex : RenewIndex;
+    perform index : Index;
+    perform cypher : Cypher;
   }
 
   part def Providers {
@@ -161,7 +175,7 @@ package SysMLv2LspProject {
   // ─── Part defs: clients ─────────────────────────────────────────────────────
   part def CursorClient {
     doc /*
-      Cursor IDE: VS Code-based; runs SysML v2 LSP (for .sysml editing) and MCP client (for loadProject, impact, rename, context). Primary client for this repo; MCP cwd = workspace root.
+      Cursor IDE: VS Code-based; runs SysML v2 LSP (for .sysml editing) and MCP client. Uses loadProject, impact, rename, context, query, index, renewIndex, cypher. Primary client for this repo; MCP cwd = workspace root.
     */
   }
 
@@ -186,7 +200,7 @@ package SysMLv2LspProject {
   // ─── Composite: MCP extension core ──────────────────────────────────────────
   part def McpExtensionCore {
     doc /*
-      MCP-only extension boundary (R3.1): parser, symbol table, document manager (LSP cache; not used in MCP call path), MCP session context, MCP server, and project graph index (PLAN §13). mcpServer performs LoadProject, Impact, Rename, Context, Query (optional), RenewIndex (optional). Reuses parser (parseDocument), SymbolTable (build, clearAll, findReferences), McpContext, ProjectGraphIndex (buildFromSymbolTable on load success; clear on session clear). Session state: sessionState (empty | loaded). PLAN §2, §5.
+      MCP-only extension boundary (R3.1): parser, symbol table, document manager (LSP cache; not used in MCP call path), MCP session context, MCP server, and project graph index (PLAN §13). mcpServer performs LoadProject, Impact, Rename, Context, Query (optional), RenewIndex, Index, Cypher. Reuses parser (parseDocument), SymbolTable (build, clearAll, findReferences), McpContext, ProjectGraphIndex (buildFromSymbolTable on load success; clear on session clear; index/renewIndex write graph; cypher queries graph). Session state: sessionState (empty | loaded). PLAN §2, §5.
     */
     part parser : ParserLayer;
     part symbolTable : SymbolTableLayer;
@@ -202,12 +216,12 @@ package SysMLv2LspProject {
     doc /*
       Top-level deployment: MCP extension core (load/impact/rename/context), language server,
       providers, analysis, Mermaid generator. Primary client: Cursor (LSP + MCP); also VS Code, web, Python.
-      Refactor loop (Phase 1): loadProject (A1 or A2) → impact(symbol) → rename(symbol, newName, dryRun: true) → client applies edits. Success when: one loadProject call loads project; impact returns refs/affectedUris/risk; rename dryRun returns edits; context returns definition+refs+hierarchy (PLAN §6). Out of scope: LSP project awareness, rename to disk, detect_changes, cypher (PLAN §9).
+      Tool groups: Phase 1 — loadProject, impact, rename; Phase 2 — context; Phase 3 — query (optional); PLAN §13 — renewIndex, index (build graph without load), cypher (read-only graph query). Refactor loop: loadProject (A1 or A2) → impact(symbol) → rename(symbol, newName, dryRun: true) → client applies edits. Success: PLAN §6. Out of scope: LSP project awareness, rename to disk, detect_changes (PLAN §9).
 
       Data flow: LSP path — client ↔ languageServer (JSON-RPC) ↔ providers, documentManager (workspace symbol table). MCP path — client ↔ mcpServer (stdio) ↔ extensionCore (symbolTable, projectGraphIndex, mcpContext).
 
       Parts (roles and behaviour):
-      — extensionCore: MCP path; holds parser, symbolTable, documentManager, mcpContext, projectGraphIndex, mcpServer; session state (empty|loaded). Performs LoadProject, Impact, Rename, Context, Query, RenewIndex (optional). loadProject on success updates projectGraphIndex. impact/rename/context may query graph for assist. Used by refactorLoop and symbolContextLookup.
+      — extensionCore: MCP path; holds parser, symbolTable, documentManager, mcpContext, projectGraphIndex, mcpServer; session state (empty|loaded). Performs LoadProject, Impact, Rename, Context, Query, RenewIndex, Index, Cypher. loadProject on success updates projectGraphIndex; index (GitNexus-style) builds graph without loading; renewIndex rebuilds; cypher runs read-only graph query. impact/rename/context may query graph for assist. Used by refactorLoop and symbolContextLookup.
       — languageServer: LSP path; JSON-RPC connection, document open/change/close; does not use project/config; satisfies reqExistingToolsUnchanged.
       — providers: LSP features (diagnostics, completion, hover, definition, references, documentSymbol, semanticTokens, folding, rename, codeAction); use workspace symbol table from documentManager.
       — analysis: complexity metrics, composite index, hotspot; MCP getComplexity tool.
@@ -217,7 +231,7 @@ package SysMLv2LspProject {
       — webClient: browser SPA + Node bridge; live editor, diagnostics, outline, Mermaid.
       — pythonClient: Python/Jupyter; LSP over stdio.
 
-      Graph index (PLAN §13): extensionCore.projectGraphIndex. Symbol/reference graph built from symbol table; updated on loadProject success; clear on session clear. renewIndex rebuilds from current symbol table. impact/rename/context may query graph for assist. Satisfies ReqIndexAssistFuture.
+      Graph index (PLAN §13): extensionCore.projectGraphIndex. Graph DB: nodes Project, Document, Symbol; edges IN_DOCUMENT, REFERENCES, TYPES, PARENT. Updated on loadProject success; index (GitNexus-style) builds without loading; renewIndex rebuilds; cypher runs read-only Cypher. impact/rename/context may query for assist. Satisfies ReqIndexAssistFuture.
     */
     part extensionCore : McpExtensionCore;
     part languageServer : LanguageServer;

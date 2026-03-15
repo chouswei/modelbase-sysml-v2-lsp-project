@@ -1,6 +1,6 @@
 /*
-  Requirements for the SysML v2 LSP MCP extension: project-scoped load, impact, rename, context.
-  Source: requirements.md §1–3; behaviour: PLAN §4–5; success when: PLAN §6; out of scope: PLAN §9; traceability: PLAN §10; memory: PLAN §11; future index: PLAN §13. Satisfy links in deploy-sysml-v2-lsp-project.sysml.
+  Requirements for the SysML v2 LSP MCP extension: project-scoped load, impact, rename, context, query.
+  Source: requirements.md §1–3; behaviour: PLAN §4–5; success: PLAN §6; out of scope: PLAN §9; traceability: PLAN §10; memory: PLAN §11; index as assist: PLAN §13 (graph, index, renewIndex, cypher). Satisfy links in deploy-sysml-v2-lsp-project.sysml.
 */
 package SysMLv2LspProjectRequirements {
   private import ScalarValues::String;
@@ -221,9 +221,10 @@ package SysMLv2LspProjectRequirements {
     attribute requirementId : String = "R.Future.Index";
     doc
     /*
-      Index as assist (PLAN §13): memory = single project; index = graph (projectGraphIndex). loadProject
-      on success updates graph; renewIndex rebuilds from symbol table without re-load. impact/rename/context
-      may query graph for assist (downstream, risk, hierarchy). Satisfied by extensionCore.projectGraphIndex.
+      Index as assist (PLAN §13): memory = single project; index = graph DB (projectGraphIndex). loadProject
+      on success updates graph; index builds graph without loading session (GitNexus-style); renewIndex
+      rebuilds from symbol table. impact/rename/context may query graph for assist. cypher tool runs
+      read-only Cypher against the index. Satisfied by extensionCore.projectGraphIndex.
     */
   }
 }
