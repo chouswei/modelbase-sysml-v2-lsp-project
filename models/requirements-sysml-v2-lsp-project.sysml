@@ -221,9 +221,9 @@ package SysMLv2LspProjectRequirements {
     attribute requirementId : String = "R.Future.Index";
     doc
     /*
-      Future (out of scope Phase 1): Index as assist — memory = single project; index = graph DB. loadProject
-      on success updates graph; index/renewIndex build graph without loading (GitNexus-style). rename/impact/context
-      may query graph for assist. See PLAN §13.
+      Index as assist (PLAN §13): memory = single project; index = graph (projectGraphIndex). loadProject
+      on success updates graph; renewIndex rebuilds from symbol table without re-load. impact/rename/context
+      may query graph for assist (downstream, risk, hierarchy). Satisfied by extensionCore.projectGraphIndex.
     */
   }
 }
